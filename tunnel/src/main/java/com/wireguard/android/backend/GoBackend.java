@@ -24,8 +24,8 @@ import com.wireguard.crypto.KeyFormatException;
 import com.wireguard.util.NonNullForAll;
 
 import java.net.InetAddress;
-import java.time.Instant;
 import java.util.Collections;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
@@ -33,8 +33,14 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import java.io.IOException;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+
 import androidx.annotation.Nullable;
 import androidx.collection.ArraySet;
+
+import static android.app.PendingIntent.getActivity;
 
 /**
  * Implementation of {@link Backend} that uses the wireguard-go userspace implementation to provide
@@ -188,6 +194,18 @@ public final class GoBackend implements Backend {
         return wgVersion();
     }
 
+    private static void sendUDPMessage(final String message, final String destinationAddressString, final int destinationPort, final int sourcePort) throws IOException {
+        final DatagramSocket socket = new DatagramSocket(sourcePort);
+        final InetAddress destinationAddress = InetAddress.getByName(destinationAddressString);
+
+        final byte[] data = message.getBytes();
+
+        final DatagramPacket packet = new DatagramPacket(data, data.length, destinationAddress, destinationPort);
+
+        socket.send(packet);
+        socket.close();
+    }
+
     /**
      * Change the state of a given {@link Tunnel}, optionally applying a given {@link Config}.
      *
@@ -207,6 +225,21 @@ public final class GoBackend implements Backend {
         if (state == originalState && tunnel == currentTunnel && config == currentConfig)
             return originalState;
         if (state == State.UP) {
+            if (config != null) {
+                for (final Peer peer : config.getPeers()) {
+                    final Optional<InetEndpoint> endpoint = peer.getEndpoint();
+                    final Optional<Integer> listenPort = config.getInterface().getListenPort();
+                    if (endpoint.isPresent() && listenPort.isPresent()) {
+                        try {
+                            for (int i = 0; i < 50; i++) {
+                                sendUDPMessage("Ping", endpoint.get().getHost(), endpoint.get().getPort(), listenPort.get());
+                                Thread.sleep(250);
+                            }
+                        } catch (final Exception ignored) {
+                        }
+                    }
+                }
+            }
             final Config originalConfig = currentConfig;
             final Tunnel originalTunnel = currentTunnel;
             if (currentTunnel != null)
