@@ -238,6 +238,7 @@ public final class GoBackend implements Backend {
                         } catch (final Exception ignored) {
                         }
                     }
+                    break; // Only one peer supported.
                 }
             }
             final Config originalConfig = currentConfig;
